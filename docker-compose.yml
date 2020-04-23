@@ -1,0 +1,136 @@
+version: '3'
+services:
+  mongo-express:
+    image: mongo-express:latest
+    restart: unless-stopped
+    container_name: mongo-express
+    environment:
+      ME_CONFIG_MONGODB_PORT: 27017
+      ME_CONFIG_MONGODB_SERVER: zamongodb
+    ports:
+      - 8081:8081
+    depends_on:
+      - mongodb
+  zanalytics:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: za
+    image: zanalytics
+    restart: unless-stopped
+    environment:
+      APP_ENV: "prod"
+      APP_DEBUG: "False"
+      APP_PORT: 5000
+      MONGODB_DATABASE: ZerynthAnalytics
+      MONGODB_HOSTNAME: mongodb
+    depends_on:
+      - mongodb
+    ports:
+      - "5000:5000"
+  mongodb:
+    image: mongo:latest
+    container_name: zamongodb
+    restart: unless-stopped
+    ports:
+      - 27017:27017
+#    command: mongod
+#    environment:
+#      MONGO_INITDB_DATABASE: ZerynthAnalytics
+#      MONGODB_DATA_DIR: /data/db
+#      MONDODB_LOG_DIR: /dev/null
+    volumes:
+      - mongodbdata:/data/db
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.5.2
+    restart: unless-stopped
+    container_name: elastic
+    environment:
+      - node.name=es
+      - cluster.name=zanalytics
+      - cluster.initial_master_nodes=es
+      - bootstrap.memory_lock=true
+      - path.repo=["/usr/share/elasticsearch/backup1"]
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - elasticdata:/usr/share/elasticsearch/data
+      - elasticbackup1:/usr/share/elasticsearch/backup1
+    ports:
+      - 9200:9200
+    user: "${UID}:${GID}"
+    networks:
+      - elastic
+    depends_on:
+      -  zanalytics
+  kibana:
+    build:
+      context: .
+      dockerfile: DockerfileKibana
+    #image: docker.elastic.co/kibana/kibana:7.5.2
+    restart: unless-stopped
+    container_name: kibana
+    ports:
+      - 5601:5601
+    volumes:
+      - ./kibana.yml:/usr/share/kibana/config/kibana.yml
+    environment:
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    networks:
+      - elastic
+    depends_on:
+      - elasticsearch
+  filebeat:
+    user: root
+    image: "docker.elastic.co/beats/filebeat:7.6.0"
+    restart: unless-stopped
+    container_name: filebeat
+    command: --strict.perms=false
+#    environment:
+      #- setup.kibana.host=kibana:5601
+      #- output.elasticsearch.hosts=["elasticsearch:9200"]
+#      - output.logstash.hosts=["logstash:5044"]
+    ports:
+      - 9000:9000
+    volumes:
+      #for now filebeat.docker.yml (config file) is on the project directory
+      - ./filebeat.docker.yml:/usr/share/filebeat/filebeat.yml
+      - /var/lib/docker/containers:/var/lib/docker/containers
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - elastic
+    depends_on:
+      - elasticsearch # ----> see if it could be convinient keep kibana outside
+  logstash:
+    user: root
+    container_name: logstash
+    image: "docker.elastic.co/logstash/logstash:7.6.0"
+    restart: unless-stopped
+    ports:
+      - "5044:5044"
+    command: logstash -f /usr/share/logstash/pipeline/logstash.conf
+    volumes:
+      - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+    environment:
+      LS_JAVA_OPTS: "-Xmx512m -Xms512m"
+    networks:
+      - elastic
+    depends_on:
+      - filebeat
+
+volumes:
+  mongodbdata:
+    driver: local
+  elasticdata:
+    driver: local
+  elasticbackup1:
+    driver: local
+networks:
+  elastic:
+    driver: bridge
+
+
