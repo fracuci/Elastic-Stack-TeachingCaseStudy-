@@ -1,0 +1,6 @@
+FROM kibana:7.5.2
+
+ENV PATH /usr/share/kibana/bin:$PATH
+
+# Documentation https://www.elastic.co/blog/elasticsearch-docker-plugin-management
+RUN kibana-plugin install \ "https://github.com/fbaligand/kibana-enhanced-table/releases/download/v1.8.0/enhanced-table-1.8.0_7.5.2.zip"
